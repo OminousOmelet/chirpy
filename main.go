@@ -8,12 +8,10 @@ import (
 	"net/http"
 	"os"
 	"sync/atomic"
-	"time"
 
 	"github.com/OminousOmelet/chirpy/internal/database"
 	"github.com/joho/godotenv"
 
-	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -21,13 +19,6 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
-}
-
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
 }
 
 func main() {
@@ -49,8 +40,8 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
-	mux.HandleFunc("POST /api/validate_chirp", apiCfg.handlerPostChirp)
 	mux.HandleFunc("POST /api/users", apiCfg.handlerUser)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlerPostChirp)
 
 	svr := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)

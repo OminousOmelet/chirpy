@@ -6,25 +6,56 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/OminousOmelet/chirpy/internal/database"
+	"github.com/google/uuid"
 )
 
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
 func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
-	type bodyParams struct {
-		Body string `json:"body"`
+	type chirpParams struct {
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
-	params := bodyParams{}
+	params := chirpParams{}
 	err := decoder.Decode(&params)
 	if err != nil {
-		log.Printf("Error decoding parameters: %s", err)
+		log.Fatalf("Error decoding parameters: %s", err)
 		w.WriteHeader(500)
 	}
 	if len(params.Body) > 140 {
 		respondWithError(w, 400, "Chirp is too long")
-	} else {
-		respondWithJSON(w, 200, params.Body)
+		return
 	}
+
+	chirp, err := cfg.dbQueries.PostChirp(context.Background(), database.PostChirpParams{Body: params.Body, UserID: params.UserID})
+	if err != nil {
+		log.Fatalf("Error posting chirp: %s", err)
+	}
+
+	//Write JSON response after posting chirp to database
+	newChirp := Chirp{
+		ID: chirp.ID, CreatedAt: chirp.CreatedAt, UpdatedAt: chirp.CreatedAt, Body: chirp.Body, UserID: chirp.UserID,
+	}
+	respondWithJSON(w, 201, newChirp)
+
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
@@ -43,35 +74,31 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 	w.Write(dat)
 }
 
-func respondWithJSON(w http.ResponseWriter, code int, payload string) {
-	type cleanJSON struct {
-		CleanBody string `json:"cleaned_body"`
-	}
-
-	dat, err := json.Marshal(cleanJSON{CleanBody: payload})
-	if err != nil {
-		log.Printf("Error marshalling JSON: %s", err)
-		return
-	}
-	datStr := string(dat)
-	datWords := strings.Split(datStr, " ")
-
-	for i := range datWords {
-		switch strings.ToLower(datWords[i]) {
+func respondWithJSON(w http.ResponseWriter, code int, chirp Chirp) {
+	// "clean" the response body (filtered words)
+	bodyStr := chirp.Body
+	words := strings.Split(bodyStr, " ")
+	for i := range words {
+		switch strings.ToLower(words[i]) {
 		case "kerfuffle":
 			fallthrough
 		case "sharbert":
 			fallthrough
 		case "fornax":
-			datWords[i] = "****"
+			words[i] = "****"
 		}
 	}
+	chirp.Body = strings.Join(words, " ")
 
-	datStr = strings.Join(datWords, " ")
+	dat, err := json.Marshal(chirp)
+	if err != nil {
+		log.Printf("Error marshalling JSON: %s", err)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	w.Write([]byte(datStr))
+	w.Write([]byte(dat))
 }
 
 // Create user
@@ -87,7 +114,7 @@ func (cfg *apiConfig) handlerUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := cfg.dbQueries.CreateUser(context.Background(), userEmail.Email)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error creating user: %s", err)
 	}
 
 	newUser := User{
