@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
+	"github.com/OminousOmelet/chirpy/internal/auth"
 	"github.com/OminousOmelet/chirpy/internal/database"
+
 	"github.com/google/uuid"
 )
 
@@ -39,20 +42,28 @@ func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 
 // Create user
 func (cfg *apiConfig) handlerUser(w http.ResponseWriter, r *http.Request) {
-	type email struct{ Email string }
-	var userEmail email
+	type UserParams struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	var u UserParams
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&userEmail)
+	err := decoder.Decode(&u)
 	if err != nil {
-		log.Printf("Error decoding parameters: %s", err)
 		w.WriteHeader(500)
+		log.Printf("Error decoding parameters: %s", err)
 	}
 
-	user, err := cfg.dbQueries.CreateUser(context.Background(), userEmail.Email)
+	hashPass, err := auth.HashPassword(u.Password)
+	if err != nil {
+		log.Fatalf("Failed to hash password: %s", err)
+	}
+	user, err := cfg.dbQueries.CreateUser(context.Background(), database.CreateUserParams{Email: u.Email, HashedPassword: hashPass})
 	if err != nil {
 		log.Fatalf("Error creating user: %s", err)
 	}
 
+	// just for display
 	newUser := User{
 		ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
 	}
@@ -66,4 +77,44 @@ func (cfg *apiConfig) handlerUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
 	w.Write([]byte(dat))
+}
+
+// login user with password
+func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
+	type UserCreds struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	var creds UserCreds
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&creds)
+	if err != nil {
+		w.WriteHeader(500)
+		log.Printf("Error decoding parameters: %s", err)
+	}
+
+	user, err := cfg.dbQueries.GetUserByEmail(context.Background(), creds.Email)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "sql: no rows") {
+			respondWithError(w, 401, "Unauthorized (user doesn't exist)")
+		} else {
+			log.Fatalf("Failed to get user: %s", err)
+		}
+		return
+	}
+
+	authorized, err := auth.CheckPasswordHash(creds.Password, user.HashedPassword)
+	if err != nil {
+		log.Fatalf("Error checking password: %s", err)
+	}
+	if !authorized {
+		respondWithError(w, 401, "Unauthorized")
+	} else {
+		secureUser := User{
+			ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
+		}
+		respondWithJSON(w, 200, secureUser)
+	}
+
 }
