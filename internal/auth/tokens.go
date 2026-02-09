@@ -1,0 +1,44 @@
+package auth
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+)
+
+func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
+	claims := jwt.RegisteredClaims{
+		Issuer:    "chirpy",
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn)),
+		Subject:   uuid.UUID.String(userID),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString([]byte(tokenSecret))
+	if err != nil {
+		return "", err
+	}
+	return tokenStr, nil
+}
+
+func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(*jwt.Token) (any, error) {
+		return []byte(tokenSecret), nil
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("ERROR #1: %s", err)
+	}
+	idString, err := token.Claims.GetSubject()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("ERROR #2: %s", err)
+	}
+	id, err := uuid.Parse(idString)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("ERROR #3: %s", err)
+	}
+
+	return id, nil
+}

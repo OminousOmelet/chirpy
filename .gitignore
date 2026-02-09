@@ -11,6 +11,9 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Unit test files (ending in '_test.go')
+*_test.go
+
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*
