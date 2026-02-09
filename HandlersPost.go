@@ -6,17 +6,15 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/OminousOmelet/chirpy/internal/auth"
 	"github.com/OminousOmelet/chirpy/internal/database"
-
-	"github.com/google/uuid"
 )
 
 func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 	type chirpParams struct {
-		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -30,7 +28,16 @@ func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, "Chirp is too long")
 	}
 
-	chirp, err := cfg.dbQueries.PostChirp(context.Background(), database.PostChirpParams{Body: params.Body, UserID: params.UserID})
+	tokenStr, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Fatal(err)
+	}
+	userID, err := auth.ValidateJWT(tokenStr, cfg.secret)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	chirp, err := cfg.dbQueries.PostChirp(context.Background(), database.PostChirpParams{Body: params.Body, UserID: userID})
 	if err != nil {
 		log.Fatalf("Error posting chirp: %s", err)
 	}
@@ -82,8 +89,9 @@ func (cfg *apiConfig) handlerUser(w http.ResponseWriter, r *http.Request) {
 // login user with password
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type UserCreds struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email         string        `json:"email"`
+		Password      string        `json:"password"`
+		ExpiresInSecs time.Duration `json:"expires_in_seconds"`
 	}
 
 	var creds UserCreds
@@ -92,6 +100,13 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(500)
 		log.Printf("Error decoding parameters: %s", err)
+	}
+
+	// Convert duration value to seconds (or default to 1 hour)
+	if creds.ExpiresInSecs == 0 {
+		creds.ExpiresInSecs = time.Hour
+	} else {
+		creds.ExpiresInSecs *= time.Second
 	}
 
 	user, err := cfg.dbQueries.GetUserByEmail(context.Background(), creds.Email)
@@ -108,13 +123,20 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatalf("Error checking password: %s", err)
 	}
+
+	var secureUser User
 	if !authorized {
 		respondWithError(w, 401, "Unauthorized")
 	} else {
-		secureUser := User{
+		secureUser = User{
 			ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
 		}
-		respondWithJSON(w, 200, secureUser)
 	}
 
+	tokenStr, err := auth.MakeJWT(secureUser.ID, cfg.secret, creds.ExpiresInSecs)
+	if err != nil {
+		log.Fatalf("Failed to get token: %s", err)
+	}
+	secureUser.Token = tokenStr
+	respondWithJSON(w, 200, secureUser)
 }

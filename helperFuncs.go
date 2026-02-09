@@ -57,3 +57,7 @@ func prepChirp(chirp database.Chirp) Chirp {
 	}
 	return newChirp
 }
+
+//func middlewareLogIn(handler func (cfg *apiConfig)(w http.ResponseWriter, r *http.Request, expires_in_seconds time.Time)) func(http.ResponseWriter, *http.Request) {
+//	return func (cfg *apiConfig)(w http.ResponseWriter, r *http.Request){
+//	}
