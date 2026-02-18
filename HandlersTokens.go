@@ -22,7 +22,7 @@ func (cfg *apiConfig) handlerRefreshToken(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if token.RevokedAt.Valid {
-		respondWithError(w, 401, "TOKEN EXPIRED")
+		respondWithError(w, 401, "TOKEN REVOKED")
 		log.Print("Failed to refresh token (current token already revoked)")
 		return
 	}

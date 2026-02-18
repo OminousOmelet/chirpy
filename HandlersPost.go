@@ -9,6 +9,7 @@ import (
 
 	"github.com/OminousOmelet/chirpy/internal/auth"
 	"github.com/OminousOmelet/chirpy/internal/database"
+	"github.com/google/uuid"
 )
 
 func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
@@ -50,112 +51,52 @@ func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 201, cleanChirp)
 }
 
-// Create user
-func (cfg *apiConfig) handlerUser(w http.ResponseWriter, r *http.Request) {
-	type UserParams struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-	var u UserParams
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&u)
+func (cfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
+	headerToken, err := auth.GetBearerToken(r.Header)
 	if err != nil {
-		w.WriteHeader(500)
-		log.Printf("Error decoding parameters: %s", err)
+		respondWithError(w, 401, "DELETE FAILED")
+		log.Printf("ERROR DELETING: failed to get token from header:, %s", err)
 		return
 	}
 
-	hashPass, err := auth.HashPassword(u.Password)
+	userID, err := auth.ValidateJWT(headerToken, cfg.secret)
 	if err != nil {
-		log.Printf("Failed to hash password: %s", err)
-		return
-	}
-	user, err := cfg.dbQueries.CreateUser(context.Background(), database.CreateUserParams{Email: u.Email, HashedPassword: hashPass})
-	if err != nil {
-		log.Printf("Error creating user: %s", err)
+		respondWithError(w, 401, "DELETE FAILED")
+		log.Printf("ERROR DELETING CHIRP: JWT validation failed: %s", err)
 		return
 	}
 
-	// just for display
-	newUser := User{
-		ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
-	}
-
-	dat, err := json.Marshal(newUser)
+	id := r.PathValue("chirpID")
+	chirpID, err := uuid.Parse(id)
 	if err != nil {
-		log.Printf("Error marshalling JSON: %s", err)
+		log.Printf("Failed to parse ID %s", err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	w.Write([]byte(dat))
-}
-
-// login user with password
-func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
-	type UserCreds struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
-
-	var creds UserCreds
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&creds)
-	if err != nil {
-		w.WriteHeader(500)
-		log.Printf("Error decoding parameters: %s", err)
-	}
-
-	user, err := cfg.dbQueries.GetUserByEmail(context.Background(), creds.Email)
+	chirp, err := cfg.dbQueries.GetChirpByID(context.Background(), chirpID)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "sql: no rows") {
-			respondWithError(w, 401, "Unauthorized (user doesn't exist)")
+			respondWithError(w, 404, "Chirp not found")
+			log.Print("ERROR DELETING CHIRP: chirp not found")
 		} else {
-			log.Printf("Failed to get user: %s", err)
+			w.WriteHeader(500)
+			log.Printf("ERROR DELETING CHIRP: Error getting chirp by ID: %s", err)
 		}
 		return
 	}
 
-	authorized, err := auth.CheckPasswordHash(creds.Password, user.HashedPassword)
-	if err != nil {
-		log.Fatalf("Error checking password: %s", err)
-	}
-
-	var secureUser User
-	if !authorized {
-		respondWithError(w, 401, "Unauthorized")
-		return
-	} else {
-		secureUser = User{
-			ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
-		}
-	}
-
-	tokenStr, err := auth.MakeJWT(secureUser.ID, cfg.secret)
-	if err != nil {
-		log.Printf("Error making JWT: %s", err)
-		return
-	}
-	secureUser.Token = tokenStr
-
-	refreshStr, err := auth.MakeRefreshToken()
-	if err != nil {
-		respondWithError(w, 401, "")
-		log.Printf("Failed to make refresh token: %s", err)
-		return
-	}
-	secureUser.RefreshToken = refreshStr
-
-	refreshParams := database.StoreRefreshTokenParams{
-		Token: refreshStr, UserID: secureUser.ID,
-	}
-	_, err = cfg.dbQueries.StoreRefreshToken(context.Background(), refreshParams)
-	if err != nil {
-		respondWithError(w, 401, "")
-		log.Printf("Failed to store refresh token %s", err)
+	if userID != chirp.UserID {
+		respondWithError(w, 403, "UNAUTHORIZED")
+		log.Print("Chirp deletion denied, user ID mismatch")
 		return
 	}
 
-	respondWithJSON(w, 200, secureUser)
+	err = cfg.dbQueries.DeleteUsers(context.Background())
+	if err != nil {
+		w.WriteHeader(500)
+		log.Printf("Failed to delete chirp: %s", err)
+		return
+	}
+
+	w.WriteHeader(204)
 }
