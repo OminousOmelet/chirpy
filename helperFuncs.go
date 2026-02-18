@@ -16,7 +16,8 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 	errBody := jsonError{Error: msg}
 	dat, err := json.Marshal(errBody)
 	if err != nil {
-		log.Fatalf("ERROR MESSAGE FAILED: %s", err)
+		log.Printf("ERROR MESSAGE FAILED: %s", err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -27,7 +28,8 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 func respondWithJSON(w http.ResponseWriter, code int, payload any) {
 	json, err := json.Marshal(payload)
 	if err != nil {
-		log.Fatalf("Failed to marshal payload: %s", err)
+		log.Printf("Failed to marshal payload: %s", err)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -57,7 +59,3 @@ func prepChirp(chirp database.Chirp) Chirp {
 	}
 	return newChirp
 }
-
-//func middlewareLogIn(handler func (cfg *apiConfig)(w http.ResponseWriter, r *http.Request, expires_in_seconds time.Time)) func(http.ResponseWriter, *http.Request) {
-//	return func (cfg *apiConfig)(w http.ResponseWriter, r *http.Request){
-//	}
