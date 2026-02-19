@@ -9,6 +9,7 @@ import (
 
 	"github.com/OminousOmelet/chirpy/internal/auth"
 	"github.com/OminousOmelet/chirpy/internal/database"
+	"github.com/google/uuid"
 )
 
 type UserCreds struct {
@@ -85,7 +86,7 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		secureUser = User{
-			ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
+			ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, IsChirpyRed: user.IsChirpyRed.Bool,
 		}
 	}
 
@@ -156,7 +157,52 @@ func (cfg *apiConfig) handlerUpdateUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	secureUser := User{
-		ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email,
+		ID: user.ID, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Email: user.Email, IsChirpyRed: user.IsChirpyRed.Bool,
 	}
 	respondWithJSON(w, 200, secureUser)
+}
+
+func (cfg *apiConfig) HandlerUpgradeUser(w http.ResponseWriter, r *http.Request) {
+	type Data struct {
+		UserID uuid.UUID `json:"user_id"`
+	}
+	type eventParams struct {
+		Event string `json:"event"`
+		Data  Data   `json:"data"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := eventParams{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		w.WriteHeader(500)
+		log.Printf("USER UPGRADE ERROR: Error decoding parameters: %s", err)
+		return
+	}
+
+	if params.Event != "user.upgraded" {
+		w.WriteHeader(204)
+		log.Print("unrecognized event ignored")
+		return
+	}
+
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		log.Printf("UPGRADE FAILED: error getting api key: %s", err)
+	}
+
+	if apiKey != cfg.polkaKey {
+		respondWithError(w, 401, "UNAUTHORIZED")
+		log.Print("user upgrade denied, api key mismatch")
+		return
+	}
+
+	err = cfg.dbQueries.UpgradeUserToRed(context.Background(), params.Data.UserID)
+	if err != nil {
+		respondWithError(w, 404, "UPGRADE FAIL")
+		log.Printf("UPGRADE FAILED: %s", err)
+		return
+	}
+
+	respondWithJSON(w, 204, "")
 }

@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"errors"
+	"net/http"
 	"runtime"
+	"strings"
 
 	"github.com/alexedwards/argon2id"
 )
@@ -28,4 +31,14 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 		return false, err
 	}
 	return match, nil
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	keyStr := headers.Get("Authorization")
+	if keyStr == "" {
+		return "", errors.New("header not found")
+	}
+	wordlist := strings.Split(keyStr, " ")
+
+	return wordlist[1], nil
 }

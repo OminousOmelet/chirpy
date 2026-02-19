@@ -22,10 +22,12 @@ func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&params)
 	if err != nil {
 		w.WriteHeader(500)
-		log.Fatalf("Error decoding parameters: %s", err)
+		log.Printf("CHIRP POST ERROR: Error decoding parameters: %s", err)
+		return
 	}
 	if len(params.Body) > 140 {
 		respondWithError(w, 400, "Chirp is too long")
+		log.Print("chirp post failed, chirp is too long")
 		return
 	}
 
